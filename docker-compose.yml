@@ -1,0 +1,12 @@
+services:
+  adk:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      GOOGLE_GENAI_USE_ENTERPRISE: "FALSE"
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped

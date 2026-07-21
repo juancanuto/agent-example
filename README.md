@@ -4,21 +4,7 @@ Exemplo com [Google ADK](https://adk.dev/): um **orquestrador** que delega para 
 
 ### Arquitetura
 
-```text
-Usuário
-   │
-   ▼
-adk web / adk run / adk api_server
-   │
-   ▼
-root_agent  (orchestrator/coordinator)
-   │  sub_agents
-   ▼
-weather_agent                 ← sub_agents/weather
-   │  tools
-   ▼
-get_weather()                 ← Open-Meteo
-```
+![Fluxo do orquestrador ao Open-Meteo](docs/fluxo.png)
 
 ### Estrutura principal
 

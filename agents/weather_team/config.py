@@ -1,3 +1,5 @@
 """Configuração compartilhada do app weather_team."""
 
-MODEL = "gemini-flash-latest"
+import os
+
+MODEL = os.getenv("MODEL", "gemini-flash-latest")

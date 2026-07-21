@@ -1,6 +1,6 @@
-## Weather Team ADK – Exemplo de orquestrador + sub-agente
+## Weather Team ADK – Orquestrador + sub-agente
 
-Exemplo mínimo com [Google Agent Development Kit (ADK)](https://adk.dev/): um **orquestrador** (`coordinator`) que delega para um **sub-agente** (`weather_agent`), e esse sub-agente chama uma **function tool** que consulta a [Open-Meteo](https://open-meteo.com/) (API pública de clima, sem API key).
+Exemplo com [Google ADK](https://adk.dev/): um **orquestrador** que delega para um **sub-agente** de clima, e esse sub-agente chama uma **function tool** na [Open-Meteo](https://open-meteo.com/) (API pública, sem API key).
 
 ### Arquitetura
 
@@ -11,177 +11,128 @@ Usuário
 adk web / adk run / adk api_server
    │
    ▼
-root_agent  (coordinator)     ← orquestrador
+root_agent  (orchestrator/coordinator)
    │  sub_agents
    ▼
-weather_agent                 ← sub-agente especialista
+weather_agent                 ← sub_agents/weather
    │  tools
    ▼
-get_weather()                 ← function tool
-   │
-   ▼
-Open-Meteo (geocoding + forecast)
+get_weather()                 ← Open-Meteo
 ```
 
 ### Estrutura principal
 
-- `agents/`
-  - Diretório pai passado ao CLI (`adk web agents`). Cada subpasta é um “app” de agente.
-- `agents/weather_team/`
-  - Pacote do agente. O ADK exige `__init__.py` + `agent.py` com `root_agent`.
-- `agents/weather_team/__init__.py`
-  - Marca o pacote e importa `agent` para o runtime descobrir o `root_agent`.
+```text
+agents/
+  weather_team/                 # app ADK (pasta descoberta pelo CLI)
+    agent.py                    # exporta root_agent
+    config.py                   # modelo e configs
+    utils/                      # load_prompt()
+    orchestrator/
+      agent.py
+      prompts/                  # description.md + instruction.md
+    sub_agents/
+      weather/
+        agent.py
+        tools.py
+        prompts/                # description.md + instruction.md
+Dockerfile
+docker-compose.yml
+requirements.txt
+.env.example
+```
+
 - `agents/weather_team/agent.py`
-  - Define o sub-agente, o orquestrador e exporta `root_agent`.
-- `agents/weather_team/tools.py`
-  - Function tool `get_weather` (HTTP para Open-Meteo).
-- `requirements.txt`
-  - Dependência `google-adk`.
-- `Dockerfile` / `docker-compose.yml`
-  - Empacota e sobe o `adk api_server` na porta 8080.
-- `.env.example`
-  - Modelo das variáveis de ambiente (chave Gemini).
+  - Contrato do ADK: só reexporta `root_agent` a partir do orquestrador.
+- `agents/weather_team/config.py`
+  - Constantes compartilhadas (`MODEL`).
+- `agents/weather_team/utils/`
+  - Helper `load_prompt()` para ler os `.md`.
+- `agents/weather_team/orchestrator/`
+  - Coordinator + prompts locais em `orchestrator/prompts/`.
+- `agents/weather_team/sub_agents/weather/`
+  - Sub-agente, `tools.py` e prompts locais em `prompts/`.
 
 ### Fluxos típicos
 
-- **Pergunta de clima**: o `coordinator` reconhece o intent e transfere para `weather_agent` → a tool `get_weather` busca dados reais → o sub-agente responde em português.
-- **Cumprimento / pergunta geral**: o orquestrador responde sozinho, sem chamar o especialista.
-- **Cidade inexistente**: a tool devolve `status: error` e o agente comunica o problema sem inventar temperatura.
+- **Clima**: coordinator → `weather_agent` → `get_weather` → resposta em português.
+- **Geral / cumprimento**: o orquestrador responde sozinho.
+- **Cidade inválida**: a tool retorna `status: error`; o agente não inventa temperatura.
 
 ---
 
 ### Explicação do código
 
-#### `agents/weather_team/__init__.py`
+#### `agent.py` (entrada ADK)
 
 ```python
-from . import agent
+from .orchestrator import coordinator
+root_agent = coordinator
 ```
 
-O CLI do ADK carrega o pacote do agente. Esse import garante que `agent.py` seja executado e a variável `root_agent` exista no módulo.
+O CLI procura a variável global `root_agent` neste módulo.
 
-#### `agents/weather_team/tools.py` – a tool
+#### `config.py`
 
-| Parte | O que faz |
+Centraliza o nome do modelo Gemini usado por orquestrador e sub-agentes.
+
+#### Prompts colocalizados
+
+Cada agente carrega os `.md` da própria pasta `prompts/`:
+
+| Pasta | Arquivos |
 | --- | --- |
-| Assinatura `get_weather(city: str) -> dict` | Tipos claros viram schema da tool para o LLM. |
-| Docstring + `Args` / `Returns` | O ADK usa isso como descrição da ferramenta. |
-| Geocoding Open-Meteo | Resolve `"Sao Paulo"` → latitude/longitude. |
-| Forecast Open-Meteo | Busca `temperature_2m`, umidade e `weather_code`. |
-| Retorno `dict` com `status` | Superfície estável: sucesso ou erro sem exception não tratada. |
+| `orchestrator/prompts/` | `description.md`, `instruction.md` |
+| `sub_agents/weather/prompts/` | `description.md`, `instruction.md` |
 
-Não precisa de API key: a Open-Meteo é pública para uso não comercial / fair use.
+#### `orchestrator/agent.py`
 
-Quando você passa `tools=[get_weather]` no `Agent`, o ADK envolve a função em uma `FunctionTool` automaticamente.
+Cria o `coordinator` com prompts locais e `sub_agents=[weather_agent]`.
 
-#### `agents/weather_team/agent.py` – agentes
+#### `sub_agents/weather/agent.py`
 
-**Modelo**
+Cria o `weather_agent` com prompts locais e `tools=[get_weather]`.
 
-```python
-MODEL = "gemini-flash-latest"
-```
+#### `sub_agents/weather/tools.py`
 
-Nome canônico do modelo Gemini usado pelos dois agentes.
-
-**Sub-agente `weather_agent`**
-
-- `name`: identificador interno (usado na delegação).
-- `description`: texto que o orquestrador usa para decidir *quando* transferir.
-- `instruction`: comportamento do especialista (sempre chamar a tool, falar em PT).
-- `tools=[get_weather]`: única ferramenta disponível para ele.
-
-**Orquestrador `root_agent`**
-
-- Nome da variável **obrigatório**: `root_agent` (contrato do `adk web` / `api_server` / `run`).
-- `sub_agents=[weather_agent]`: padrão de **delegação LLM** — o coordinator analisa o pedido e transfere o turno ao especialista quando a `description` combina.
-- `instruction`: regras de roteamento (clima → `weather_agent`; resto → responde sozinho).
-
-Alternativa (não usada neste exemplo): envolver o sub-agente com `AgentTool` e colocar em `tools=[...]` do root, para invocação explícita como função em vez de transferência de conversa.
+Function tool tipada + docstring. O ADK a envolve em `FunctionTool`. Consulta geocoding e forecast da Open-Meteo e devolve um `dict` com `status`.
 
 ---
 
 ### Dependências e ambiente
 
-- Python **≥ 3.10** (recomendado 3.12)
+- Python ≥ 3.10 (recomendado 3.12)
 - `google-adk>=2.5.0`
-- Variáveis:
-  - `GOOGLE_API_KEY`: chave do [Google AI Studio](https://aistudio.google.com/apikey)
-  - `GOOGLE_GENAI_USE_ENTERPRISE=FALSE`: usa Gemini Developer API (não Vertex)
-
-Copie o exemplo:
+- `GOOGLE_API_KEY` + `GOOGLE_GENAI_USE_ENTERPRISE=FALSE`
 
 ```bash
 cp .env.example .env
-# edite GOOGLE_API_KEY
 ```
-
-O CLI também aceita `.env` dentro de `agents/weather_team/` se preferir.
-
----
 
 ### Como rodar localmente
 
-1. Crie o ambiente e instale dependências:
-
 ```bash
 python -m venv .venv
-# Windows PowerShell
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
 
-2. Configure `.env` com `GOOGLE_API_KEY`.
-
-3. Escolha um runtime (sempre a partir da raiz do projeto):
-
-```bash
-# Dev UI (navegador) — ótimo para ver delegação e tool calls
 adk web agents
-
-# Terminal interativo
-adk run agents/weather_team
-
-# API REST (FastAPI embutida, porta 8000 por padrão)
-adk api_server agents
+# ou: adk run agents/weather_team
+# ou: adk api_server agents
 ```
 
-4. Exemplos de pergunta:
-
-- `Qual a temperatura em São Paulo agora?`
-- `Como está o clima em Tokyo?`
-- `Oi, tudo bem?` (orquestrador sozinho)
-
----
+Exemplos: `Qual a temperatura em São Paulo?` · `Como está o clima em Tokyo?` · `Oi`
 
 ### Docker
 
-Build e sobe o `adk api_server` em `http://localhost:8080`:
-
 ```bash
-# garanta GOOGLE_API_KEY no .env
 docker compose up --build
 ```
 
-Sem Compose:
-
-```bash
-docker build -t weather-team-adk .
-docker run --rm -p 8080:8080 --env-file .env weather-team-adk
-```
-
-O `Dockerfile` instala `google-adk`, copia `agents/` e executa:
-
-```text
-adk api_server --host 0.0.0.0 --port 8080 agents
-```
-
-Para Dev UI no container, troque o `CMD` por `adk web --host 0.0.0.0 --port ${PORT} agents`.
-
----
+Sobe `adk api_server` em `http://localhost:8080`.
 
 ### Referências
 
-- [ADK – site oficial](https://adk.dev/)
+- [ADK](https://adk.dev/)
 - [Multi-agent patterns](https://developers.googleblog.com/en/developers-guide-to-multi-agent-patterns-in-adk/)
-- [Open-Meteo API](https://open-meteo.com/en/docs)
+- [Open-Meteo](https://open-meteo.com/en/docs)

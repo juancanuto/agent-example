@@ -1,8 +1,4 @@
-"""Function tools usadas pelos sub-agentes.
-
-Cada função tipada + docstring vira automaticamente uma FunctionTool
-no Google ADK quando colocada em `tools=[...]`.
-"""
+"""Function tools do sub-agente de clima."""
 
 from __future__ import annotations
 

@@ -4,7 +4,7 @@ Exemplo com [Google ADK](https://adk.dev/): um **orquestrador** que delega para 
 
 ### Arquitetura
 
-![Fluxo do orquestrador ao Open-Meteo](docs/fluxo.png)
+![Fluxo do orquestrador ao Open-Meteo](docs/arq-adk.png)
 
 ### Estrutura principal
 
@@ -100,7 +100,11 @@ adk web agents
 # ou: adk api_server agents
 ```
 
-Exemplos: `Qual a temperatura em São Paulo?` · `Como está o clima em Tokyo?` · `Oi`
+Exemplos: 
+
+`Qual a temperatura em São Paulo?` 
+
+`Como está o clima em Tokyo?`
 
 ### Docker
 
